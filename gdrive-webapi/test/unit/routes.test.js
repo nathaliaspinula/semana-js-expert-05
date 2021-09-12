@@ -1,22 +1,32 @@
-import { describe, test, expect, jest } from '@jest/globals';
+import { describe, test, expect, jest, beforeEach } from '@jest/globals';
 import Routes from '../../src/routes';
+import UploadHandler from '../../src/uploadHandler';
+import TestUtil from '../_util/testUtil';
+import { logger } from '../../src/logger.js';
 
 describe('#Routes test suite', () => {
+    const request = TestUtil.generateReadableStream(['some file bytes']);
+    const response = TestUtil.generateWritableStream(() => {});
+
     const defaultParams = {
-        request: {
-            Headers: {
+        request: Object.assign(request, {
+            headers: {
                 'Content-Type': 'multipart/form-data',
             },
             method: '',
             body: {}
-        },
-        response: {
+        }),
+        response: Object.assign(response,{
             setHeader: jest.fn(),
             writeHead: jest.fn(),
             end: jest.fn(),
-        },
+        }),
         values: () => Object.values(defaultParams)
     }
+
+    beforeEach(() => {
+        jest.spyOn(logger, 'info').mockImplementation();
+    });
 
     test('setSocket should store io instance', () => {
         const routes = new Routes();
@@ -127,6 +137,37 @@ describe('#Routes test suite', () => {
 
             expect(params.response.writeHead).toHaveBeenCalledWith(200);
             expect(params.response.end).toHaveBeenCalledWith(JSON.stringify(fileStatusesMock));
+        });
+    });
+
+    describe('#post', () => {
+        test('it should validate post route workflow', async () => {
+            const routes = new Routes('/tmp');
+
+            const options = {
+                ...defaultParams,
+            }
+
+            options.request.method = 'POST';
+            options.request.url = '?socketId=10';
+
+            jest.spyOn(UploadHandler.prototype, UploadHandler.prototype.registerEvents.name)
+                .mockImplementation((headers, onFinish) => {
+                    const writable = TestUtil.generateWritableStream(() => {});
+                    
+                    writable.on("finish", onFinish);
+
+                    return writable;
+                });
+
+            await routes.handler(...options.values());
+            
+            expect(UploadHandler.prototype.registerEvents).toHaveBeenCalled();
+            expect(options.response.writeHead).toHaveBeenCalledWith(200);
+
+            const expectedResult = JSON.stringify({ result: 'Files uploaded with success! ' });
+            
+            expect(options.response.end).toHaveBeenCalledWith(expectedResult);
         });
     });
 })
